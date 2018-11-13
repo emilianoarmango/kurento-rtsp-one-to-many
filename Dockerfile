@@ -1,7 +1,9 @@
 FROM node:8
 
-WORKDIR /opt/kurento-rtsp-one-to-many
-COPY . .
+USER node
+
+WORKDIR /home/node/kurento-rtsp-one-to-many
+COPY --chown=node:node . .
 
 RUN npm install
 
