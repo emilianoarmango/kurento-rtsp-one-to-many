@@ -2,7 +2,10 @@ version: "2.1"
 
 services:
   kurento:
-    build: https://github.com/Kurento/kurento-docker.git#:media-server-nightly
+    build:
+      context: https://github.com/Kurento/kurento-docker.git#:media-server-release
+      args:
+        KMS_VERSION: 6.8.1
     environment:
     - KMS_STUN_IP=74.125.143.127
     - KMS_STUN_PORT=19302
