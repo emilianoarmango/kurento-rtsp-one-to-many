@@ -1,0 +1,10 @@
+{
+  "numAudioMedias": 0,
+  "numVideoMedias": 1,
+  "audioCodecs": [],
+  "videoCodecs": [
+    {
+      "name": "H264/90000"
+    }
+  ]
+}

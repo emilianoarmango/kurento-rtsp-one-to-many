@@ -1,0 +1,28 @@
+version: "2.1"
+
+services:
+  kurento:
+    build: https://github.com/Kurento/kurento-docker.git#:media-server-nightly
+    volumes:
+    - ${PWD}/SdpEndpoint.conf.json:/etc/kurento/modules/kurento/SdpEndpoint.conf.json
+    ports:
+    - 8888:8888
+    depends_on:
+    - fake_camera
+
+  kurento-rtsp-one-to-many:
+    build: ./
+    ports:
+    - 8080:8080
+    environment:
+    - KURENTO=ws://kurento:8888/kurento
+    - RTSP=rtsp://fake_camera:8554/live.sdp
+    depends_on:
+      kurento: { condition: service_started }
+
+  fake_camera:
+    image: ullaakut/rtspatt
+    environment:
+    - ENABLE_TIME_OVERLAY=true
+    ports:
+    - 8554:8554
