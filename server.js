@@ -106,14 +106,31 @@ startRTSP(RTSP, function (error) {
 wsServer.on('connection', function (ws) {
     const sessionId = nextUniqueId();
     console.log(`Connection received with sessionId ${sessionId}`);
+    ws.isAlive = true;
+    ws.on('pong', () => {
+        ws.isAlive = true;
+        console.log(`pong sessionId ${sessionId}`);
+    });
+    ws.pingInterval = setInterval(() => {
+        console.log(`ping sessionId ${sessionId}`);
+        if (ws.isAlive === false) {
+            clearInterval(ws.pingInterval);
+            return ws.terminate();
+        }
+        ws.isAlive = false;
+        ws.ping();
+    }, 30000);
+
     ws.on('error', function (error) {
         console.log(`Connection ${sessionId} error`);
         console.error(error);
+        clearInterval(ws.pingInterval);
         stopClient(sessionId);
     });
 
     ws.on('close', function () {
         console.log(`Connection ${sessionId} closed`);
+        clearInterval(ws.pingInterval);
         stopClient(sessionId);
     });
 

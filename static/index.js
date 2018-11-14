@@ -1,4 +1,4 @@
-var ws_uri = parseQs.ws_uri || window.location.origin.replace(/^http/, 'ws') + '/ws';
+var ws_uri = parseQs().ws_uri || window.location.origin.replace(/^http/, 'ws') + '/ws';
 var ws = new WebSocket(ws_uri);
 var video;
 var webRtcPeer;
@@ -18,24 +18,29 @@ function parseQs() {
     })(window.location.search.substr(1).split('&'));
 }
 
+ws.onopen = viewer;
+
 window.onload = function () {
     video = document.getElementById('video');
-    video.addEventListener('dblclick', function () {
+    video.addEventListener('dblclick', function (event) {
         event.preventDefault();
         if (document.fullscreenElement) {
             document.exitFullscreen();
         } else if (document.webkitFullscreenElement) {
             document.webkitExitFullscreen();
-        } else {
-            try {
-                this.requestFullscreen();
-            } catch (e) {
-                this.webkitRequestFullScreen();
-            }
+        } else if (document.mozFullscreenElement) {
+            document.mozExitFullscreen();
+        } else if (document.body.requestFullscreen) {
+            document.body.requestFullscreen();
+        } else if (document.body.webkitRequestFullScreen) {
+            document.body.webkitRequestFullScreen();
+        } else if (document.body.mozRequestFullScreen) {
+            document.body.mozRequestFullScreen();
         }
     });
+    video.addEventListener('play', hideSpinner);
+    video.addEventListener('playing', hideSpinner);
     video.addEventListener('pause', video.play);
-    viewer();
 };
 
 window.onbeforeunload = function () {
@@ -90,14 +95,15 @@ function viewerResponse(message) {
 }
 
 function viewer() {
-    if (!webRtcPeer) {
-        var options = {
+    if (document.readyState !== 'complete') {
+        setTimeout(viewer, 10);
+    } else if (!webRtcPeer) {
+        webRtcPeer = kurentoUtils.WebRtcPeer.WebRtcPeerRecvonly({
             remoteVideo: video,
             onicecandidate: onIceCandidate
-        };
-
-        webRtcPeer = kurentoUtils.WebRtcPeer.WebRtcPeerRecvonly(options, function (error) {
-            if (error) return onError(error);
+        }, function (error) {
+            if (error)
+                return onError(error);
             this.generateOffer(onOfferViewer);
         });
     }
@@ -128,19 +134,15 @@ function dispose() {
         webRtcPeer.dispose();
         webRtcPeer = null;
     }
-    hideSpinner(video);
+    hideSpinner();
 }
 
 function sendMessage(message) {
     var jsonMessage = JSON.stringify(message);
-    console.log('Senging message: ' + jsonMessage);
+    console.log('Sending message: ' + jsonMessage);
     ws.send(jsonMessage);
 }
 
 function hideSpinner() {
-    for (var i = 0; i < arguments.length; i++) {
-        arguments[i].src = '';
-        arguments[i].poster = '';
-        arguments[i].style.background = '';
-    }
+    video.classList.remove('loading');
 }

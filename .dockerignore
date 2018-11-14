@@ -2,3 +2,7 @@ node_modules/
 bower_components/
 npm-debug.log
 /SdpEndpoint.conf.json
+.idea/
+/docker-compose.yml
+/docker-compose.local.yml
+/Dockerfile
