@@ -163,6 +163,9 @@ window.onload = function () {
     }
     video.addEventListener('play', hideSpinner);
     video.addEventListener('playing', hideSpinner);
+    video.addEventListener('stalled', dispose);
+    video.addEventListener('ended', dispose);
+    video.addEventListener('error', dispose);
     video.addEventListener('pause', function () {
         toggleSpinner(true);
         video.play();
