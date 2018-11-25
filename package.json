@@ -3,7 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "postinstall": "cd static && bower install"
+    "postinstall": "cd static && bower install",
+    "start": "./index.js"
   },
   "dependencies": {
     "kurento-client": "^6.8.0",
