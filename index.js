@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const wsm = require('ws');
 const http = require('http');
-const argparse = require ('argparse');
+const argparse = require('argparse');
 const url = require('url');
 
 const defaults = {
@@ -43,10 +43,11 @@ let pipeline = null;
 const viewers = {};
 let kurentoClient = null;
 let playerEndpoint = null;
+let positionCheckInterval = null;
 
 function nextUniqueId() {
     let id = 0;
-    while(viewers.hasOwnProperty(id.toString()))
+    while (viewers.hasOwnProperty(id.toString()))
         id++;
     return id.toString();
 }
@@ -227,20 +228,64 @@ function startRTSP(uri, callback) {
             };
 
             pipeline = _pipeline;
-            pipeline.create('PlayerEndpoint', params, function (error, _playerEndpoint) {
-                if (error) {
-                    console.error(`Error: pipeline.create(PlayerEndpoint): ${error}`);
-                    return callback(error);
+            createPlayerEndpoint(pipeline, params, callback);
+        });
+    });
+}
+
+function createPlayerEndpoint(pipeline, params, callback) {
+    pipeline.create('PlayerEndpoint', params, function (error, _playerEndpoint) {
+        if (error) {
+            console.error(`Error: pipeline.create(PlayerEndpoint): ${error}`);
+            return callback(error);
+        }
+        playerEndpoint = _playerEndpoint;
+        playerEndpoint.on('EndOfStream', () => {
+            console.log('RTSP EndOfStream');
+            reconnect(pipeline, playerEndpoint, params, callback);
+        });
+        playerEndpoint.play(function (error) {
+            if (error) {
+                console.error(`Error: playerEndpoint.play: ${error}`);
+                return callback(error);
+            }
+            for (let id in viewers) {
+                if (viewers.hasOwnProperty(id)) {
+                    playerEndpoint.connect(viewers[id].webRtcEndpoint, function (error) {
+                        console.log('master.webRtcEndpoint.connect');
+                        if (error) {
+                            stopClient(id);
+                            console.error(`Error: master.webRtcEndpoint.connect: ${error}`);
+                            return callback(error);
+                        }
+
+                        if (master === null) {
+                            stopClient(id);
+                            console.error('Error: No active sender now. Become sender or try again later');
+                            return callback('No active sender now. Become sender or try again later');
+                        }
+                    });
                 }
-                playerEndpoint = _playerEndpoint;
-                playerEndpoint.play(function (error) {
-                    if (error) {
-                        console.error(`Error: playerEndpoint.play: ${error}`);
-                        return callback(error);
-                    }
-                    callback(null);
+            }
+            if (positionCheckInterval !== null)
+                clearInterval(positionCheckInterval);
+            positionCheckInterval = setInterval(() => {
+                playerEndpoint.getPosition((error, result) => {
+                    if (result === 0)
+                        reconnect(pipeline, playerEndpoint, params, callback);
                 });
-            });
+            }, 1000);
+            callback(null);
+        });
+    });
+}
+
+function reconnect(pipeline, playerEndpoint, params, callback) {
+    console.log('RTSP reconnect');
+    clearInterval(positionCheckInterval);
+    playerEndpoint.stop(() => {
+        playerEndpoint.release(() => {
+            createPlayerEndpoint(pipeline, params, callback);
         });
     });
 }
@@ -341,8 +386,7 @@ function onIceCandidate(sessionId, _candidate) {
     if (viewers[sessionId] && viewers[sessionId].webRtcEndpoint) {
         console.info('Sending viewer candidate');
         viewers[sessionId].webRtcEndpoint.addIceCandidate(candidate);
-    }
-    else {
+    } else {
         console.info('Queueing candidate');
         if (!candidatesQueue[sessionId]) {
             candidatesQueue[sessionId] = [];
@@ -375,6 +419,8 @@ function stop(callback) {
     for (let id in viewers)
         if (viewers.hasOwnProperty(id))
             stopClient(id);
+    if (positionCheckInterval !== null)
+        clearInterval(positionCheckInterval);
     if (!pipeline) {
         callback(null);
         return;

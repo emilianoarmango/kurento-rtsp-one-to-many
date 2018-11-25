@@ -1,5 +1,5 @@
 var ws_uri = parseQs().ws_uri || window.location.origin.replace(/^http/, 'ws') + '/ws';
-var ws = new WebSocket(ws_uri);
+var ws = null;
 var video;
 var webRtcPeer;
 
@@ -18,39 +18,25 @@ function parseQs() {
     })(window.location.search.substr(1).split('&'));
 }
 
-ws.onopen = viewer;
+function wsWatchdog() {
+    if (ws.readyState !== 1) {
+        toggleSpinner(true);
+        if (ws && ws.readyState !== 3)
+            ws.close();
+        wsConnect();
+    }
+}
 
-window.onload = function () {
-    video = document.getElementById('video');
-    video.addEventListener('dblclick', function (event) {
-        event.preventDefault();
-        if (document.fullscreenElement) {
-            document.exitFullscreen();
-        } else if (document.webkitFullscreenElement) {
-            document.webkitExitFullscreen();
-        } else if (document.mozFullscreenElement) {
-            document.mozExitFullscreen();
-        } else if (document.body.requestFullscreen) {
-            document.body.requestFullscreen();
-        } else if (document.body.webkitRequestFullScreen) {
-            document.body.webkitRequestFullScreen();
-        } else if (document.body.mozRequestFullScreen) {
-            document.body.mozRequestFullScreen();
-        }
-    });
-    video.addEventListener('play', hideSpinner);
-    video.addEventListener('playing', hideSpinner);
-    video.addEventListener('pause', video.play);
-};
+function wsConnect() {
+    toggleSpinner(true);
+    ws = new WebSocket(ws_uri);
+    ws.onopen = viewer;
+    ws.onmessage = wsOnMessage;
+}
 
-window.onbeforeunload = function () {
-    ws.close();
-};
-
-ws.onmessage = function (message) {
-    var parsedMessage = JSON.parse(message.data);
+function wsOnMessage(message) {
     console.info('Received message: ' + message.data);
-
+    var parsedMessage = JSON.parse(message.data);
     switch (parsedMessage.id) {
         case 'presenterResponse':
             presenterResponse(parsedMessage);
@@ -68,10 +54,11 @@ ws.onmessage = function (message) {
         default:
             console.error('Unrecognized message', parsedMessage);
     }
-};
+}
 
 function onError(error) {
     console.error(error);
+    dispose();
 }
 
 function presenterResponse(message) {
@@ -97,7 +84,7 @@ function viewerResponse(message) {
 function viewer() {
     if (document.readyState !== 'complete') {
         setTimeout(viewer, 10);
-    } else if (!webRtcPeer) {
+    } else {
         webRtcPeer = kurentoUtils.WebRtcPeer.WebRtcPeerRecvonly({
             remoteVideo: video,
             onicecandidate: onIceCandidate
@@ -110,8 +97,8 @@ function viewer() {
 }
 
 function onOfferViewer(error, offerSdp) {
-    if (error) return onError(error);
-
+    if (error)
+        return onError(error);
     var message = {
         id: 'viewer',
         sdpOffer: offerSdp
@@ -121,7 +108,6 @@ function onOfferViewer(error, offerSdp) {
 
 function onIceCandidate(candidate) {
     console.log('Local candidate' + JSON.stringify(candidate));
-
     var message = {
         id: 'onIceCandidate',
         candidate: candidate
@@ -129,20 +115,64 @@ function onIceCandidate(candidate) {
     sendMessage(message);
 }
 
+function sendMessage(message) {
+    var jsonMessage = JSON.stringify(message);
+    if (ws && ws.readyState === 1) {
+        console.log('Sending message: ' + jsonMessage);
+        ws.send(jsonMessage);
+    } else {
+        console.warn('WS not connected, ignoring message: ' + jsonMessage);
+    }
+}
+
+function toggleSpinner(state) {
+    if (video)
+        video.classList.toggle('loading', state);
+}
+
 function dispose() {
     if (webRtcPeer) {
         webRtcPeer.dispose();
         webRtcPeer = null;
     }
-    hideSpinner();
+    if (ws && ws.readyState !== 3)
+        ws.close();
 }
 
-function sendMessage(message) {
-    var jsonMessage = JSON.stringify(message);
-    console.log('Sending message: ' + jsonMessage);
-    ws.send(jsonMessage);
-}
+window.onload = function () {
+    video = document.getElementById('video');
+    video.addEventListener('dblclick', function (event) {
+        event.preventDefault();
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+        } else if (document.webkitFullscreenElement) {
+            document.webkitExitFullscreen();
+        } else if (document.mozFullscreenElement) {
+            document.mozExitFullscreen();
+        } else if (document.body.requestFullscreen) {
+            document.body.requestFullscreen();
+        } else if (document.body.webkitRequestFullScreen) {
+            document.body.webkitRequestFullScreen();
+        } else if (document.body.mozRequestFullScreen) {
+            document.body.mozRequestFullScreen();
+        }
+    });
 
-function hideSpinner() {
-    video.classList.remove('loading');
-}
+    function hideSpinner() {
+        toggleSpinner(false);
+    }
+    video.addEventListener('play', hideSpinner);
+    video.addEventListener('playing', hideSpinner);
+    video.addEventListener('pause', function () {
+        toggleSpinner(true);
+        video.play();
+    });
+};
+
+window.onbeforeunload = function () {
+    if (ws && ws.readyState !== 3)
+        ws.close();
+};
+
+wsConnect();
+setInterval(wsWatchdog, 1000);
