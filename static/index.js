@@ -184,7 +184,7 @@ window.onload = function () {
     function onPlay() {
         toggleSpinner(false);
         if (videoWatchdogInterval === null)
-            videoWatchdogInterval = setInterval(videoWatchdog, 100);
+            videoWatchdogInterval = setInterval(videoWatchdog, 1000);
     }
     video.addEventListener('play', onPlay);
     video.addEventListener('playing', onPlay);
