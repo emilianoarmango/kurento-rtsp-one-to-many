@@ -2,7 +2,7 @@
 const kurento = require('kurento-client');
 const fs = require('fs');
 const path = require('path');
-const wsm = require('ws');
+const WebSocket = require('ws');
 const http = require('http');
 const argparse = require('argparse');
 const url = require('url');
@@ -46,6 +46,10 @@ let kurentoClient = null;
 let playerEndpoint = null;
 let positionCheckInterval = null;
 
+/*
+ * Definition of functions
+ */
+
 function nextUniqueId() {
     let id = 0;
     while (viewers.hasOwnProperty(id.toString()))
@@ -53,134 +57,14 @@ function nextUniqueId() {
     return id.toString();
 }
 
-/*
- * Server startup
- */
-
-const server = http.createServer(function (req, res) {
-    const pathname = url.parse(req.url).pathname;
-    if (pathname.indexOf('\0') !== -1) {
-        res.writeHead(404);
-        res.end();
-        return;
-    }
-
-    if (pathname === '/favicon.ico') {
-        res.writeHead(204);
-        res.end();
-        return;
-    }
-
-    const filename = path.join(webroot, pathname === '/' ? '/index.html' : pathname);
-
-    if (filename.indexOf(webroot) !== 0) {
-        res.writeHead(404);
-        res.end();
-        return;
-    }
-
-    const stream = fs.createReadStream(filename);
-    stream.on('error', function () {
-        res.writeHead(404);
-        res.end();
-    });
-    stream.pipe(res);
-}).listen(PORT);
-
-const wsServer = new wsm.Server({
-    server: server,
-    path: WS
-});
-
-// Master Stream hasn't been set
-startRTSP(RTSP, function (error) {
-    if (error) {
-        console.error(`Error: startRTSP: ${error}`);
-        process.exit(1);
+function sendMessage(sessionId, ws, message) {
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(message);
     } else {
-        console.log(`startRTSP: connected`);
+        console.warn(`Unable to send message to session ${sessionId}, disconnecting`);
+        stopClient(sessionId);
     }
-});
-
-/*
- * Management of WebSocket messages
- */
-wsServer.on('connection', function (ws) {
-    const sessionId = nextUniqueId();
-    console.log(`Connection received with sessionId ${sessionId}`);
-    ws.isAlive = true;
-    ws.on('pong', () => {
-        ws.isAlive = true;
-        console.log(`pong sessionId ${sessionId}`);
-    });
-    ws.pingInterval = setInterval(() => {
-        console.log(`ping sessionId ${sessionId}`);
-        if (ws.isAlive === false) {
-            clearInterval(ws.pingInterval);
-            return ws.terminate();
-        }
-        ws.isAlive = false;
-        ws.ping();
-    }, 30000);
-
-    ws.on('error', function (error) {
-        console.log(`Connection ${sessionId} error`);
-        console.error(error);
-        clearInterval(ws.pingInterval);
-        stopClient(sessionId);
-    });
-
-    ws.on('close', function () {
-        console.log(`Connection ${sessionId} closed`);
-        clearInterval(ws.pingInterval);
-        stopClient(sessionId);
-    });
-
-    ws.on('message', function (_message) {
-        console.log(`Connection ${sessionId} received message: ${_message}`);
-        let message = {id: null};
-        try {
-            message = JSON.parse(_message);
-        } catch (e) {
-        }
-        if (!message.hasOwnProperty('id'))
-            message.id = null;
-        switch (message.id) {
-            case 'viewer':
-                startViewer(sessionId, message.sdpOffer, ws, function (error, sdpAnswer) {
-                    if (error) {
-                        return ws.send(JSON.stringify({
-                            id: 'viewerResponse',
-                            response: 'rejected',
-                            message: error
-                        }));
-                    }
-
-                    ws.send(JSON.stringify({
-                        id: 'viewerResponse',
-                        response: 'accepted',
-                        sdpAnswer: sdpAnswer
-                    }));
-                });
-                break;
-
-            case 'onIceCandidate':
-                onIceCandidate(sessionId, message.candidate);
-                break;
-
-            default:
-                ws.send(JSON.stringify({
-                    id: 'error',
-                    message: `Invalid message ${_message}`
-                }));
-                break;
-        }
-    });
-});
-
-/*
- * Definition of functions
- */
+}
 
 // Recover kurentoClient for the first time.
 function getKurentoClient(callback) {
@@ -202,7 +86,7 @@ function getKurentoClient(callback) {
 function startRTSP(uri, callback) {
     console.log(`startRTSP: connecting to ${uri}`);
     if (master !== null) {
-        console.error("Error: Master is not running");
+        console.error('Error: Master is not running');
         callback('Master is not running');
         return;
     }
@@ -291,14 +175,14 @@ function reconnect(pipeline, playerEndpoint, params, callback) {
     });
 }
 
-function startViewer(id, sdp, ws, callback) {
-    console.log(`startViewer ${id}`);
+function startViewer(sessionId, sdp, ws, callback) {
+    console.log(`startViewer ${sessionId}`);
     if (master === null || master.webRtcEndpoint === null) {
         console.error('Error: No active streams available. Try again later');
         return callback('No active streams available. Try again later');
     }
 
-    if (viewers[id]) {
+    if (viewers[sessionId]) {
         console.error('Error: You are already viewing in this session. Use a different browser to add additional viewers.');
         return callback('You are already viewing in this session. Use a different browser to add additional viewers.')
     }
@@ -311,13 +195,13 @@ function startViewer(id, sdp, ws, callback) {
         }
 
         if (master === null) {
-            stopClient(id);
+            stopClient(sessionId);
             console.error(`Error: No active streams available. Try again later`);
             return callback(`No active streams available. Try again later`);
         }
 
         const viewer = {
-            id: id,
+            id: sessionId,
             ws: ws,
             webRtcEndpoint: webRtcEndpoint
         };
@@ -325,15 +209,15 @@ function startViewer(id, sdp, ws, callback) {
 
         master = {webRtcEndpoint: webRtcEndpoint};
 
-        if (candidatesQueue[id]) {
-            while (candidatesQueue[id].length) {
-                webRtcEndpoint.addIceCandidate(candidatesQueue[id].shift());
+        if (candidatesQueue[sessionId]) {
+            while (candidatesQueue[sessionId].length) {
+                webRtcEndpoint.addIceCandidate(candidatesQueue[sessionId].shift());
             }
         }
 
         webRtcEndpoint.on('OnIceCandidate', function (event) {
             console.log('webRtcEndpoint OnIceCandidate');
-            ws.send(JSON.stringify({
+            sendMessage(sessionId, ws, JSON.stringify({
                 id: 'iceCandidate',
                 candidate: kurento.register.complexTypes.IceCandidate(event.candidate)
             }));
@@ -342,13 +226,13 @@ function startViewer(id, sdp, ws, callback) {
         webRtcEndpoint.processOffer(sdp, function (error, sdpAnswer) {
             console.log('webRtcEndpoint processOffer');
             if (error) {
-                stopClient(id);
+                stopClient(sessionId);
                 console.error(`Error: webRtcEndpoint.processOffer: ${error}`);
                 return callback(error);
             }
 
             if (master === null) {
-                stopClient(id);
+                stopClient(sessionId);
                 console.error('Error: No active streams available. Try again later...');
                 return callback('No active streams available. Try again later...');
             }
@@ -356,13 +240,13 @@ function startViewer(id, sdp, ws, callback) {
             playerEndpoint.connect(webRtcEndpoint, function (error) {
                 console.log('master.webRtcEndpoint.connect');
                 if (error) {
-                    stopClient(id);
+                    stopClient(sessionId);
                     console.error(`Error: master.webRtcEndpoint.connect: ${error}`);
                     return callback(error);
                 }
 
                 if (master === null) {
-                    stopClient(id);
+                    stopClient(sessionId);
                     console.error('Error: No active sender now. Become sender or try again later');
                     return callback('No active sender now. Become sender or try again later');
                 }
@@ -442,3 +326,121 @@ function stop(callback) {
 ['SIGINT', 'SIGTERM'].forEach(signal => process.on(signal, () => {
     stop(() => process.exit(0));
 }));
+
+startRTSP(RTSP, function (error) {
+    if (error) {
+        console.error(`Error: startRTSP: ${error}`);
+        return process.exit(1);
+    }
+    console.log(`startRTSP: connected`);
+});
+
+const server = http.createServer(function (req, res) {
+    const pathname = url.parse(req.url).pathname;
+    if (pathname.indexOf('\0') !== -1) {
+        res.writeHead(404);
+        res.end();
+        return;
+    }
+
+    if (pathname === '/favicon.ico') {
+        res.writeHead(204);
+        res.end();
+        return;
+    }
+
+    const filename = path.join(webroot, pathname === '/' ? '/index.html' : pathname);
+
+    if (filename.indexOf(webroot) !== 0) {
+        res.writeHead(404);
+        res.end();
+        return;
+    }
+
+    const stream = fs.createReadStream(filename);
+    stream.on('error', function () {
+        res.writeHead(404);
+        res.end();
+    });
+    stream.pipe(res);
+}).listen(PORT);
+
+const wsServer = new WebSocket.Server({
+    server: server,
+    path: WS
+});
+
+/*
+ * Management of WebSocket messages
+ */
+wsServer.on('connection', function (ws) {
+    const sessionId = nextUniqueId();
+    console.log(`Connection received with sessionId ${sessionId}`);
+    ws.isAlive = true;
+    ws.on('pong', () => {
+        ws.isAlive = true;
+        console.log(`pong sessionId ${sessionId}`);
+    });
+    ws.pingInterval = setInterval(() => {
+        if (ws.isAlive === false) {
+            clearInterval(ws.pingInterval);
+            return ws.terminate();
+        }
+        ws.isAlive = false;
+        ws.ping();
+    }, 30000);
+
+    ws.on('error', function (error) {
+        console.log(`Connection ${sessionId} error`);
+        console.error(error);
+        clearInterval(ws.pingInterval);
+        stopClient(sessionId);
+    });
+
+    ws.on('close', function () {
+        console.log(`Connection ${sessionId} closed`);
+        clearInterval(ws.pingInterval);
+        stopClient(sessionId);
+    });
+
+    ws.on('message', function (_message) {
+        console.log(`Connection ${sessionId} received message: ${_message}`);
+        let message = {id: null};
+        try {
+            message = JSON.parse(_message);
+        } catch (e) {
+        }
+        if (!message.hasOwnProperty('id'))
+            message.id = null;
+        switch (message.id) {
+            case 'viewer':
+                startViewer(sessionId, message.sdpOffer, ws, function (error, sdpAnswer) {
+                    if (error) {
+                        return sendMessage(sessionId, ws, JSON.stringify({
+                            id: 'viewerResponse',
+                            response: 'rejected',
+                            message: error
+                        }));
+                    }
+
+                    sendMessage(sessionId, ws, JSON.stringify({
+                        id: 'viewerResponse',
+                        response: 'accepted',
+                        sdpAnswer: sdpAnswer
+                    }));
+                });
+                break;
+
+            case 'onIceCandidate':
+                onIceCandidate(sessionId, message.candidate);
+                break;
+
+            default:
+                sendMessage(sessionId, ws, JSON.stringify({
+                    id: 'error',
+                    message: `Invalid message ${_message}`
+                }));
+                break;
+        }
+    });
+});
