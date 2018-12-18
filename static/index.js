@@ -162,30 +162,60 @@ function dispose() {
         ws.close();
 }
 
-window.onload = function () {
-    video = document.getElementById('video');
-    video.addEventListener('dblclick', function (event) {
-        event.preventDefault();
-        if (document.fullscreenElement) {
-            document.exitFullscreen();
-        } else if (document.webkitFullscreenElement) {
-            document.webkitExitFullscreen();
-        } else if (document.mozFullscreenElement) {
-            document.mozExitFullscreen();
-        } else if (document.body.requestFullscreen) {
-            document.body.requestFullscreen();
-        } else if (document.body.webkitRequestFullScreen) {
-            document.body.webkitRequestFullScreen();
-        } else if (document.body.mozRequestFullScreen) {
-            document.body.mozRequestFullScreen();
-        }
-    });
+function toggleFullscreen() {
+    if (document.fullscreenElement) {
+        document.exitFullscreen();
+    } else if (document.webkitFullscreenElement) {
+        document.webkitExitFullscreen();
+    } else if (document.mozFullscreenElement) {
+        document.mozExitFullscreen();
+    } else if (document.body.requestFullscreen) {
+        document.body.requestFullscreen();
+    } else if (document.body.webkitRequestFullScreen) {
+        document.body.webkitRequestFullScreen();
+    } else if (document.body.mozRequestFullScreen) {
+        document.body.mozRequestFullScreen();
+    }
+}
 
+function togglePip() {
+    if (video.requestPictureInPicture) {
+        if (!document.pictureInPictureElement) {
+            video.requestPictureInPicture();
+        } else {
+            document.exitPictureInPicture()
+        }
+    }
+}
+
+function snapshot() {
+    var date = new Date();
+    var canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    var ctx = canvas.getContext('2d');
+
+    ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+    var img_data = canvas.toDataURL('image/jpg');
+
+    var link = document.createElement('a');
+    link.download = 'snapshot-' + date.toISOString() + '.jpg';
+    link.href = img_data;
+    link.click();
+}
+
+window.onload = function () {
     function onPlay() {
         toggleSpinner(false);
         if (videoWatchdogInterval === null)
             videoWatchdogInterval = setInterval(videoWatchdog, 1000);
     }
+
+    video = document.getElementById('video');
+
+    video.addEventListener('click', video.play);
+    video.addEventListener('dblclick', toggleFullscreen);
+
     video.addEventListener('play', onPlay);
     video.addEventListener('playing', onPlay);
     video.addEventListener('stalled', dispose);
@@ -194,6 +224,20 @@ window.onload = function () {
     video.addEventListener('pause', function () {
         toggleSpinner(true);
         video.play();
+    });
+
+    document.addEventListener('keydown', function (event) {
+        switch (event.code) {
+            case 'KeyF':
+                toggleFullscreen();
+                break;
+            case 'KeyP':
+                togglePip();
+                break;
+            case 'KeyS':
+                snapshot();
+                break;
+        }
     });
 };
 
