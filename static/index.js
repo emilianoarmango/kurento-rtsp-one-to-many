@@ -216,7 +216,6 @@ window.onload = function () {
     video.addEventListener('click', video.play);
     video.addEventListener('dblclick', toggleFullscreen);
 
-    video.addEventListener('play', onPlay);
     video.addEventListener('playing', onPlay);
     video.addEventListener('stalled', dispose);
     video.addEventListener('ended', dispose);
