@@ -4,6 +4,7 @@ var video = null;
 var webRtcPeer = null;
 var videoWatchdogPrevTime = null;
 var videoWatchdogInterval = null;
+var playing = false;
 
 function parseQs() {
     return (function (a) {
@@ -23,6 +24,7 @@ function parseQs() {
 function wsWatchdog() {
     if (ws.readyState !== WebSocket.OPEN) {
         console.warn('wsWatchdog: reconnecting', ws.readyState);
+        playing = false;
         toggleSpinner(true);
         if (ws && ws.readyState !== WebSocket.CLOSED)
             ws.close();
@@ -32,6 +34,7 @@ function wsWatchdog() {
 
 function wsConnect() {
     console.debug('wsConnect', ws_uri);
+    playing = false;
     toggleSpinner(true);
     ws = new WebSocket(ws_uri);
     ws.onopen = viewer;
@@ -153,6 +156,7 @@ function toggleSpinner(state) {
 
 function dispose() {
     console.warn('dispose');
+    playing = false;
     toggleSpinner(true);
     if (webRtcPeer) {
         webRtcPeer.dispose();
@@ -179,6 +183,8 @@ function toggleFullscreen() {
 }
 
 function togglePip() {
+    if (!playing)
+        return;
     if (video.requestPictureInPicture) {
         if (!document.pictureInPictureElement) {
             video.requestPictureInPicture();
@@ -189,6 +195,8 @@ function togglePip() {
 }
 
 function snapshot() {
+    if (!playing)
+        return;
     var date = new Date();
     var canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
@@ -206,6 +214,7 @@ function snapshot() {
 
 window.onload = function () {
     function onPlay() {
+        playing = true;
         toggleSpinner(false);
         if (videoWatchdogInterval === null)
             videoWatchdogInterval = setInterval(videoWatchdog, 1000);
@@ -221,6 +230,7 @@ window.onload = function () {
     video.addEventListener('ended', dispose);
     video.addEventListener('error', dispose);
     video.addEventListener('pause', function () {
+        playing = false;
         toggleSpinner(true);
         video.play();
     });
