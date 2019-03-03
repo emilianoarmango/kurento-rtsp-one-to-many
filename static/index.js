@@ -204,10 +204,10 @@ function snapshot() {
     var ctx = canvas.getContext('2d');
 
     ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-    var img_data = canvas.toDataURL('image/jpg');
+    var img_data = canvas.toDataURL('image/jpeg');
 
     var link = document.createElement('a');
-    link.download = 'snapshot-' + date.toISOString() + '.jpg';
+    link.download = 'snapshot-' + date.toISOString() + '.jpeg';
     link.href = img_data;
     link.click();
 }
