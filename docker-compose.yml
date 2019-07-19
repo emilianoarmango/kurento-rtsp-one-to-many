@@ -3,7 +3,7 @@ version: "2.1"
 services:
   kurento:
     build:
-      context: https://github.com/Kurento/kurento-docker.git#:media-server-release
+      context: https://github.com/Kurento/kurento-docker.git#:kurento-media-server
       args:
         KMS_VERSION: 6.8.1
     environment:
